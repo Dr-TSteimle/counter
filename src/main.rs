@@ -3,45 +3,42 @@ use std::fs::File;
 use std::io::BufReader;
 use csv::ReaderBuilder;
 use std::time::Instant;
+use clap::Parser;
 
 // find /Turbine-pool/LAL-T_RNAseq/BAM_star/*.sorted.bam | parallel -j30 /home/thomas/Documents/Programmes/counter/target/debug/counter {} NGS/tools/arriba_v2.1.0/RefSeq_hg38.gtf ">" {}.count
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+   #[arg(short='a', long)]
+   bam_path: String,
+
+   #[arg(short, long)]
+   bed_path: String,
+}
 
 struct Position {
     contig: String,
-    from: i32,
-    to: i32
+    from  : i32,
+    to    : i32
 }
 fn main() {
-    let path_bam = std::env::args().nth(1).expect("no bam path given"); // "/Turbine-pool/LAL-T_RNAseq/BAM_star/58_MAS.star_out.sorted.bam"
-    let path_gtf = std::env::args().nth(2).expect("no gtf path given"); // "/home/thomas/NGS/tools/arriba_v2.1.0/RefSeq_hg38.gtf"
+    let args = Args::parse();
+    let path_bam = args.bam_path; // "/Turbine-pool/LAL-T_RNAseq/BAM_star/58_MAS.star_out.sorted.bam"
+    let path_bed = args.bed_path; // "/home/thomas/NGS/tools/arriba_v2.1.0/RefSeq_hg38.gtf"
     let mut bam = IndexedReader::from_path(&path_bam).unwrap();
-    count_on(&path_gtf, &mut bam);
+    count_on(&path_bed, &mut bam);
     std::process::exit(0);
 }
 
-fn get_from_pos(pos: Position, bam: &mut IndexedReader) -> (i32,i32) {
-    let mut lane_counts: (i32,i32) = (0,0);
-    let _ = bam.fetch((&pos.contig, pos.from, pos.to));
-
+fn get_from_pos(pos: Position, bam: &mut IndexedReader) -> i128 {
+    eprintln!("Reading position {}:{}-{}", pos.contig, pos.from, pos.to);
+    let mut n_reads: i128 = 0;
+    let r = bam.fetch((&pos.contig, pos.from, pos.to));
+    
     for read in bam.records() {
-        let mut n_sep: i32 = 0;
-        let lane1: u8 = 1 as u8;
-        let lane2: u8 = 2 as u8;
-        let read = read.unwrap();
-        read.qname().to_vec().iter().for_each(|a| {
-            if n_sep == 3 {
-                if *a == lane1 {
-                    lane_counts.0 += 1;
-                } else if *a == lane2 {
-                    lane_counts.1 += 1;
-                }
-            }
-            if *a == b":"[0] {
-                n_sep+=1
-            }
-        });
+        if read.is_ok() {n_reads += 1;}
     }
-    lane_counts
+    n_reads
 }
 
 fn count_on(path: &String, bam: &mut IndexedReader) {
@@ -60,10 +57,7 @@ fn count_on(path: &String, bam: &mut IndexedReader) {
         let mut line: Vec<String> = line.unwrap().iter().map(|a| a.to_string()).collect();
 
             let res = get_from_pos(Position {contig: line[0].clone(), from: line[1].parse().unwrap(), to: line[2].parse().unwrap()}, bam);
-            line.push(res.0.to_string());
-            n_reads += res.0;
-            line.push(res.1.to_string());
-            n_reads += res.1;
+            line.push(res.to_string());
             println!("{}", line.join(&"\t"));           
 
         n_iter += 1;
